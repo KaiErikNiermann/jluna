@@ -18,7 +18,9 @@ namespace jluna::detail
 {
     template<typename T>
     struct as_julia_type_aux
-    {};
+    {
+        static inline const std::string type_name = "Any";
+    };
 
     template<>
     struct as_julia_type_aux<bool>
