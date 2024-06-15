@@ -30,7 +30,7 @@ project(jluna VERSION 1.0.0 LANGUAGES CXX)
 
 include(cmake/project-is-top-level.cmake)
 if(PROJECT_IS_TOP_LEVEL)
-    option(jluna_DEVELOPER_MODE "Enable developer mode" OFF)
+    option(jluna_DEVELOPER_MODE "Enable developer mode" ON)
 endif()
 
 ### Find Julia ###

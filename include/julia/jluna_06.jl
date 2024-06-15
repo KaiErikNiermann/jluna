@@ -161,27 +161,29 @@ wrap proxy ctor
 new_proxy(name::Symbol) = return Proxy(name)
 
 """
-`implement(::Proxy, ::Module) -> Type`
+`implement(::Proxy, ::Module, ::Bool) -> Type`
 
 translate a usertype proxy into an actual julia type
 """
-function implement(template::Proxy, m::Module = Main) ::Type
-
+function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false) ::Type
+    println("implementing ", template._typename, " in module ", m)
+    println("is_abstract: ", is_abstract)
     @lock template._value._lock begin
         out::Expr = :(mutable struct $(template._typename) end)
         deleteat!(out.args[3].args, 1)
-
+        
         for name in template._value._fieldnames_in_order
             push!(out.args[3].args, Expr(:(::), name, :($(typeof(template._value._fields[name])))))
         end
-
+        
         new_call::Expr = Expr(:(=), Expr(:call, template._typename), Expr(:call, :new))
-
+        
         for name in template._value._fieldnames_in_order
             push!(new_call.args[2].args, template._value._fields[name])
         end
-
+        
         push!(out.args[3].args, new_call)
+        println(out)
         Base.eval(m, out)
     end
     return m.eval(template._typename)
