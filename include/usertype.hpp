@@ -9,7 +9,6 @@
 
 #include <include/type.hpp>
 #include <include/proxy.hpp>
-#include <include/type_container.hpp>
 
 namespace jluna
 {
@@ -20,6 +19,35 @@ namespace jluna
         constexpr static inline bool value = true; \
         constexpr static inline bool abstract = !(is_default_constructible<T>); \
     }; 
+
+    template<typename T, typename... AT>
+    class TypeWrapper {
+        public:
+            static inline std::unordered_map<std::string, std::size_t> type_to_info;
+            
+            static void initialize_map() {
+                type_to_info[usertype_enabled<T>::name] = typeid(T).hash_code();
+                (initialize_additional_t_map<AT>(), ...);
+            }
+
+            template <typename U>
+            static void initialize_additional_t_map() {
+                type_to_info[usertype_enabled<U>::name] = typeid(U).hash_code();
+            }
+
+            static void dispatch_method(const std::string& t_name, const auto& op) {
+                std::size_t type_info = type_to_info[t_name];
+                if (type_info == typeid(T).hash_code()) {
+                    op.template operator()<T>();
+                } else {
+                    ([&type_info, &op]() -> void {
+                        if (type_info == typeid(AT).hash_code()) {
+                            op.template operator()<AT>();
+                        }
+                    }(), ...);
+                }
+            }
+    };
 
     /// @brief customizable wrapper for non-julia type T
     /// @note for information on how to use this class, visit https://github.com/Clemapfel/jluna/blob/master/docs/manual.md#usertypes
@@ -32,6 +60,18 @@ namespace jluna
         public:
             /// @brief original type
             using original_type = T;
+
+            static inline auto self = T();
+
+
+            template <typename... AT>
+            static void initialize_map();
+
+            template <typename U>
+            static void initialize_additional_t_map();
+
+            template <typename U>
+            static void dispatch_method(const std::string& t_name, const auto& op);
 
             /// @brief ctor delete, static-only interface
             Usertype() = delete;
@@ -80,16 +120,19 @@ namespace jluna
             static T unbox(unsafe::Value*);
 
         private:
+            static inline std::function<void(const std::string&, const std::function<void(T&)>&)> seeker;
+
             static void initialize();
             static inline bool _implemented = false;
 
+            static inline std::unordered_map<std::string, std::size_t> type_to_info;
             static inline std::unique_ptr<Type> _type = std::unique_ptr<Type>(nullptr);
             static inline std::unique_ptr<Symbol> _name = std::unique_ptr<Symbol>(nullptr);
 
             static inline std::vector<Symbol> _fieldnames_in_order = {};
             static inline std::map<Symbol, std::tuple<
                 std::function<unsafe::Value*(T&)>,        // getter
-                std::function<void(T&, unsafe::Value*)>,   // setter
+                std::function<void(T&, unsafe::Value*, std::string)>,   // setter
                 Type
             >> _mapping = {};
     };
@@ -98,4 +141,5 @@ namespace jluna
     /// @param T: usertype-wrapped type, for example if `MyType` should be implicitly convertible, `Usertype<MyType>` needs to be specified, `set_usertype_enable(MyType)` needs to have been called, then `make_usertype_implicitly_convertible(MyType)` will enable the conversion once `Usertype<MyType>::implement` was called during runtime
     #define make_usertype_implicitly_convertible(T) namespace jluna::detail { template<> struct as_julia_type_aux<T> { static inline const std::string type_name = #T; }; }
 }
+
 #include <.src/usertype.inl>

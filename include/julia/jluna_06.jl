@@ -166,8 +166,8 @@ new_proxy(name::Symbol) = return Proxy(name)
 translate a usertype proxy into an actual julia type
 """
 function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false) ::Type
-    println("implementing ", template._typename, " in module ", m)
-    println("is_abstract: ", is_abstract)
+    # println("implementing ", template._typename, " in module ", m)
+    # println("is_abstract: ", is_abstract)
     @lock template._value._lock begin
         out::Expr = :(mutable struct $(template._typename) end)
         deleteat!(out.args[3].args, 1)
@@ -183,7 +183,7 @@ function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false)
         end
         
         push!(out.args[3].args, new_call)
-        println(out)
+        # println(out)
         Base.eval(m, out)
     end
     return m.eval(template._typename)

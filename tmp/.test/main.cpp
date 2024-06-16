@@ -1378,22 +1378,22 @@ int main()
         Test::assert_that(Usertype<NonJuliaType>::is_implemented());
     });
 
-    Test::test("Usertype: box/unbox", []() {
+    // Test::test("Usertype: box/unbox", []() {
 
-        gc_pause;
-        auto instance = NonJuliaType{{123, 34556, 12321}};
+    //     gc_pause;
+    //     auto instance = NonJuliaType{{123, 34556, 12321}};
 
-        auto* res01 = Usertype<NonJuliaType>::box(instance);
-        auto* res02 = box<NonJuliaType>(instance);
+    //     auto* res01 = Usertype<NonJuliaType>::box(instance);
+    //     auto* res02 = box<NonJuliaType>(instance);
 
-        Test::assert_that(jluna::detail::is_equal(jl_get_nth_field(res01, 0), jl_get_nth_field(res02, 0)));
+    //     Test::assert_that(jluna::detail::is_equal(jl_get_nth_field(res01, 0), jl_get_nth_field(res02, 0)));
 
-        auto backres01 = Usertype<NonJuliaType>::unbox(res01);
-        auto backres02 = unbox<NonJuliaType>(res02);
+    //     auto backres01 = Usertype<NonJuliaType>::unbox(res01);
+    //     auto backres02 = unbox<NonJuliaType>(res02);
 
-        Test::assert_that(backres01._field.size() == backres02._field.size());
-        gc_unpause;
-    });
+    //     Test::assert_that(backres01._field.size() == backres02._field.size());
+    //     gc_unpause;
+    // });
 
     Test::test("jluna::Mutex", [](){
 

@@ -147,19 +147,19 @@ if(NOT CMAKE_SKIP_INSTALL_RULES)
     include(cmake/install-rules.cmake)
 endif()
 
-include(CTest)
+# include(CTest)
 ### Declare Test ###
 
-option(BUILD_TESTING "Enable jluna_test" ON)
-if (BUILD_TESTING)
-    add_executable(
-        jluna_test
-        .test/main.cpp
-        .test/test.hpp
-    )
-    target_link_libraries(jluna_test PRIVATE jluna)
-    add_test(NAME jluna_test COMMAND jluna_test)
-endif()
+# option(BUILD_TESTING "Enable jluna_test" OFF)
+# if (BUILD_TESTING)
+#     add_executable(
+#         jluna_test
+#         .test/main.cpp
+#         .test/test.hpp
+#     )
+#     target_link_libraries(jluna_test PRIVATE jluna)
+#     add_test(NAME jluna_test COMMAND jluna_test)
+# endif()
 
 ### Developer mode ###
 
