@@ -1,12 +1,19 @@
-// 
+//
 // Copyright 2022 Clemens Cords
 // Created on 25.02.22 by clem (mail@clemens-cords.com)
 //
-
 #include <include/exceptions.hpp>
 
 namespace jluna
 {
+    inline auto single = [](unsafe::Value* in) -> auto {
+        return [&in]<typename T, typename U>() {
+            unbox<T>(in);
+        };
+    };
+
+    using wrapper_t = decltype(single);
+
     template<typename T>
     struct as_julia_type<Usertype<T>>
     {
@@ -24,27 +31,27 @@ namespace jluna
     template <typename... AT>
     void Usertype<T>::initialize_map() {
         Usertype<T>::type_to_info[usertype_enabled<T>::name] = typeid(T).hash_code();
-                
-        auto dispatch_lambda = [](const std::string& t_name, const auto& op) {
+
+        Usertype<T>::seeker<wrapper_t> = [](const std::string& t_name, const wrapper_t&& op, unsafe::Value* in) {
             std::size_t type_info = type_to_info[t_name];
 
-            auto lambda = [&op, &type_info]<typename... ATs>() {
+            auto lambda = [&op, &type_info, &in]<typename... ATs>() {
                 if (type_info == typeid(T).hash_code()) {
-                    std::cout << "main_t " << typeid(T).name() << std::endl;
-                    op.template operator()<T>();
-                } 
-                ([&type_info, &op]() -> void {
-                    if (type_info == typeid(ATs).hash_code()) {
-                        std::cout << "add_t " << typeid(ATs).name() << std::endl;
-                    } else {
-                        std::cout << "not type " << typeid(ATs).name() << std::endl;
-                    }
-                }(), ...);
+                    std::cout << "actual type " << typeid(T).name() << std::endl;
+                    op(in).template operator()<T, T>(); // calls unbox on T
+                } else {
+                    ([&type_info, &op, &in]() -> void {
+                        if (type_info == typeid(ATs).hash_code()) {
+                            std::cout << "actual type " << typeid(ATs).name() << std::endl;
+                            op(in).template operator()<ATs, T>(); // calls unbox on ATs
+                        }
+                    }(), ...);
+                }
             };
 
             lambda.template operator()<AT...>();
         };
-        Usertype<T>::seeker = dispatch_lambda;
+
         (initialize_additional_t_map<AT>(), ...);
     }
 
@@ -55,9 +62,9 @@ namespace jluna
     }
 
     template<typename T>
-    template<typename U>
-    void Usertype<T>::dispatch_method(const std::string& t_name, const auto& op) {
-        Usertype<T>::seeker(t_name, op);
+    template<typename lambda_t>
+    void Usertype<T>::dispatch_method(const std::string& t_name, lambda_t&& op, unsafe::Value* in) {
+        Usertype<T>::seeker<wrapper_t>(t_name, op, in);
     }
 
     template<typename T>
@@ -79,19 +86,21 @@ namespace jluna
             [box_get](T& instance) -> unsafe::Value* {
                 return jluna::box<Field_t>(box_get(instance));
             },
-            [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
+            [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str, bool is_primitive) -> void {
+
+
+                // jluna::unbox<Field_t>(value);
+                if (!is_primitive) 
+                    Usertype<T>::dispatch_method(jl_type_as_str, single, value);
                 
-                // if (jl_type_as_str != as_julia_type<Field_t>::type_name);
-                //     throw std::runtime_error("Type mismatch");
-
-                jluna::unbox<Field_t>(value);
-
-                std::cout << "before dispatcher" << std::endl;
-                Usertype<T>::dispatch_method<T>(jl_type_as_str, 
-                    []<typename A>() {
-                        std::cout << "dispatched" << std::endl;
-                    }
-                );
+                if (jl_type_as_str != as_julia_type<Field_t>::type_name) {
+                    std::cout << "jl type -> " << jl_type_as_str << std::endl;
+                    std::cout << "cpp type -> " << as_julia_type<Field_t>::type_name << std::endl;
+                    throw std::runtime_error("Type mismatch");
+                }
+                
+                // print type : field name -> value
+                std::cout << typeid(T).name() << " : " << jl_type_as_str << " -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), value)) << std::endl;
 
                 unbox_set(instance, Usertype<Field_t>::self);
             },
@@ -130,18 +139,14 @@ namespace jluna
         static jl_value_t* _abstract = jl_box_bool(Usertype<T>::is_abstract());
 
 
-        if (!Usertype<T>::is_abstract()) {
-            auto default_instance = T();
-            auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
+        auto default_instance = T();
+        auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
 
-            for (auto& field_name : _fieldnames_in_order)
-                jluna::safe_call(setfield, template_proxy, (unsafe::Value*) std::get<0>(_mapping.at(field_name))(default_instance), (unsafe::Value*) field_name);
-            _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
-        } else {
-            auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
-            _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
-        }
+        for (auto& field_name : _fieldnames_in_order)
+            jluna::safe_call(setfield, template_proxy, (unsafe::Value*) std::get<0>(_mapping.at(field_name))(default_instance), (unsafe::Value*) field_name);
         
+        _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
+
         _implemented = true;
         gc_unpause;
     }
@@ -184,9 +189,9 @@ namespace jluna
         // `pair.first` is a `jl_sym_t*`
         // `pair.second` is a `std::tuple<getter, setter, Type>`
         std::cout << "unboxing -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), in)) << std::endl;
-        std::cout << "unboxing_t -> " << typeid(self).name() << std::endl; 
+        std::cout << "unboxing_t -> " << typeid(self).name() << std::endl;
         for (auto& pair : _mapping) {
-            using _setter_t = std::function<void(T&, unsafe::Value*, std::string)>;
+            using _setter_t = std::function<void(T&, unsafe::Value*, std::string, bool)>;
             jl_sym_t* sym = (jl_sym_t*) pair.first;
             // std::cout << "field: " << jl_symbol_name(sym) << std::endl;
 
@@ -197,10 +202,12 @@ namespace jluna
             // --------------
             // testing
 
-            std::cout << "desired | " << 
+            std::cout << "desired | " <<
                 jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), val))
-                << " : " 
-                << val_t.get_name() << std::endl;
+                << " : "
+                << val_t.get_name() << " ; " 
+                << !val_t.get_name().compare("String") 
+                << std::endl;
 
             // std::cout << "is struct? " << val_t.is_struct_type() << std::endl;
             // leaf_finder::find_leaf_type(val);
@@ -209,10 +216,10 @@ namespace jluna
 
             jluna::Type expected_t = std::get<2>(pair.second);
             // std::cout << val_t.get_name() << "->" << expected_t.get_name() << std::endl;
-            
+
             _setter_t set = std::get<1>(pair.second);
 
-            set(self, val, val_t.get_name());
+            set(self, val, val_t.get_name(), !(val_t.get_name().compare("String")));
         }
 
         gc_unpause;

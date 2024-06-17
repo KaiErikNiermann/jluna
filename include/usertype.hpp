@@ -20,35 +20,6 @@ namespace jluna
         constexpr static inline bool abstract = !(is_default_constructible<T>); \
     }; 
 
-    template<typename T, typename... AT>
-    class TypeWrapper {
-        public:
-            static inline std::unordered_map<std::string, std::size_t> type_to_info;
-            
-            static void initialize_map() {
-                type_to_info[usertype_enabled<T>::name] = typeid(T).hash_code();
-                (initialize_additional_t_map<AT>(), ...);
-            }
-
-            template <typename U>
-            static void initialize_additional_t_map() {
-                type_to_info[usertype_enabled<U>::name] = typeid(U).hash_code();
-            }
-
-            static void dispatch_method(const std::string& t_name, const auto& op) {
-                std::size_t type_info = type_to_info[t_name];
-                if (type_info == typeid(T).hash_code()) {
-                    op.template operator()<T>();
-                } else {
-                    ([&type_info, &op]() -> void {
-                        if (type_info == typeid(AT).hash_code()) {
-                            op.template operator()<AT>();
-                        }
-                    }(), ...);
-                }
-            }
-    };
-
     /// @brief customizable wrapper for non-julia type T
     /// @note for information on how to use this class, visit https://github.com/Clemapfel/jluna/blob/master/docs/manual.md#usertypes
     template<typename T>
@@ -63,15 +34,14 @@ namespace jluna
 
             static inline auto self = T();
 
-
             template <typename... AT>
             static void initialize_map();
 
             template <typename U>
             static void initialize_additional_t_map();
 
-            template <typename U>
-            static void dispatch_method(const std::string& t_name, const auto& op);
+            template <typename lambda_t>
+            static void dispatch_method(const std::string& t_name, lambda_t&& op, unsafe::Value* in);
 
             /// @brief ctor delete, static-only interface
             Usertype() = delete;
@@ -119,8 +89,15 @@ namespace jluna
             /// @note this function will call implement() if it has not been called before, incurring a tremendous overhead on first execution, once
             static T unbox(unsafe::Value*);
 
+            static inline std::map<Symbol, std::tuple<
+                std::function<unsafe::Value*(T&)>,        // getter
+                std::function<void(T&, unsafe::Value*, std::string, bool is_primitve)>,   // setter
+                Type
+            >> _mapping = {};
+
         private:
-            static inline std::function<void(const std::string&, const std::function<void(T&)>&)> seeker;
+            template<typename wrapper>
+            static inline std::function<void(const std::string&, const wrapper, unsafe::Value*)> seeker;
 
             static void initialize();
             static inline bool _implemented = false;
@@ -130,11 +107,6 @@ namespace jluna
             static inline std::unique_ptr<Symbol> _name = std::unique_ptr<Symbol>(nullptr);
 
             static inline std::vector<Symbol> _fieldnames_in_order = {};
-            static inline std::map<Symbol, std::tuple<
-                std::function<unsafe::Value*(T&)>,        // getter
-                std::function<void(T&, unsafe::Value*, std::string)>,   // setter
-                Type
-            >> _mapping = {};
     };
 
     /// @brief declare T to be implicitly convertible to its same-named Julia-side equivalent. The user is responsible for assuring the usertype interface for T is fully specified and implemented, otherwise behavior of calling box on the type is undefined.
