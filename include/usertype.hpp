@@ -62,7 +62,7 @@ namespace jluna
             /// @param name: julia-side name of field
             /// @param box_get: lambda with signature (T&) -> unsafe::Value*
             /// @param unbox_set: lambda with signature (T&, unsafe::Value*) -> void
-            template<typename Field_t>
+            template<typename Field_t, typename... Derived_t>
             static void add_property(
                 const std::string& name,
                 std::function<Field_t(T&)> box_get,
@@ -94,15 +94,18 @@ namespace jluna
                 std::function<void(T&, unsafe::Value*, std::string, bool is_primitve)>,   // setter
                 Type
             >> _mapping = {};
+            
+            static inline void set_manually_abstract(bool value);
 
+            static inline std::unordered_map<std::string, std::size_t> type_to_info;
         private:
             template<typename wrapper>
             static inline std::function<void(const std::string&, const wrapper, unsafe::Value*)> seeker;
 
             static void initialize();
             static inline bool _implemented = false;
+            static inline bool _manual_abstract = false;
 
-            static inline std::unordered_map<std::string, std::size_t> type_to_info;
             static inline std::unique_ptr<Type> _type = std::unique_ptr<Type>(nullptr);
             static inline std::unique_ptr<Symbol> _name = std::unique_ptr<Symbol>(nullptr);
 

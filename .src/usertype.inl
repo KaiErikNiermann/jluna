@@ -68,7 +68,7 @@ namespace jluna
     }
 
     template<typename T>
-    template<typename Field_t>
+    template<typename Field_t, typename... Derived_t>
     void Usertype<T>::add_property(
         const std::string& name,
         std::function<Field_t(T&)> box_get,
@@ -87,22 +87,21 @@ namespace jluna
                 return jluna::box<Field_t>(box_get(instance));
             },
             [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str, bool is_primitive) -> void {
-
-
-                // jluna::unbox<Field_t>(value);
-                if (!is_primitive) 
-                    Usertype<T>::dispatch_method(jl_type_as_str, single, value);
                 
-                if (jl_type_as_str != as_julia_type<Field_t>::type_name) {
-                    std::cout << "jl type -> " << jl_type_as_str << std::endl;
-                    std::cout << "cpp type -> " << as_julia_type<Field_t>::type_name << std::endl;
-                    throw std::runtime_error("Type mismatch");
+                if (Usertype<T>::type_to_info[jl_type_as_str] == typeid(Field_t).hash_code()) {
+                    std::cout << "a\n";
+                    unbox_set(instance, jluna::unbox<Field_t>(value));
+                } else {
+                    ([=]() -> void {
+                        if (Usertype<T>::type_to_info[jl_type_as_str] == typeid(Derived_t).hash_code()) {
+                            std::cout << "b\n";
+                            Derived_t unboxed_val = jluna::unbox<Derived_t>(value);
+                            unbox_set(instance, &unboxed_val);
+                        }
+                    }(), ...);
                 }
-                
-                // print type : field name -> value
-                std::cout << typeid(T).name() << " : " << jl_type_as_str << " -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), value)) << std::endl;
 
-                unbox_set(instance, Usertype<Field_t>::self);
+                // unbox_set(instance, jluna::unbox<Field_t>(value));
             },
             Type((jl_datatype_t*) jl_eval_string(as_julia_type<Field_t>::type_name.c_str()))
         }});
@@ -138,7 +137,6 @@ namespace jluna
         static jl_function_t* setfield = jl_get_function(jl_base_module, "setindex!");
         static jl_value_t* _abstract = jl_box_bool(Usertype<T>::is_abstract());
 
-
         auto default_instance = T();
         auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
 
@@ -156,7 +154,7 @@ namespace jluna
     {
         return _implemented;
     }
-
+    
     template<typename T>
     unsafe::Value* Usertype<T>::box(T& in)
     {
@@ -184,6 +182,7 @@ namespace jluna
         gc_pause;
         static jl_function_t* getfield = jl_get_function(jl_base_module, "getfield");
 
+        using _setter_t = std::function<void(T&, unsafe::Value*, std::string, bool)>;
         auto out = T();
 
         // `pair.first` is a `jl_sym_t*`
@@ -191,40 +190,22 @@ namespace jluna
         std::cout << "unboxing -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), in)) << std::endl;
         std::cout << "unboxing_t -> " << typeid(self).name() << std::endl;
         for (auto& pair : _mapping) {
-            using _setter_t = std::function<void(T&, unsafe::Value*, std::string, bool)>;
-            jl_sym_t* sym = (jl_sym_t*) pair.first;
-            // std::cout << "field: " << jl_symbol_name(sym) << std::endl;
 
-            // calls the getter with symbol val
             jl_value_t* val = jluna::safe_call(getfield, in, (unsafe::Value*) pair.first);
             jluna::Type val_t = jluna::Type((jl_datatype_t*) jl_typeof(val));
 
-            // --------------
-            // testing
-
-            std::cout << "desired | " <<
-                jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), val))
-                << " : "
-                << val_t.get_name() << " ; " 
-                << !val_t.get_name().compare("String") 
-                << std::endl;
-
-            // std::cout << "is struct? " << val_t.is_struct_type() << std::endl;
-            // leaf_finder::find_leaf_type(val);
-
-            // ---------------
-
-            jluna::Type expected_t = std::get<2>(pair.second);
-            // std::cout << val_t.get_name() << "->" << expected_t.get_name() << std::endl;
-
             _setter_t set = std::get<1>(pair.second);
 
-            set(self, val, val_t.get_name(), !(val_t.get_name().compare("String")));
+            set(out, val, val_t.get_name(), !(val_t.get_name().compare("String")));
         }
 
         gc_unpause;
-        return self;
+        return out;
     }
+
+    template<typename T>
+    void Usertype<T>::set_manually_abstract(bool value) { _manual_abstract = value; }
+
 
     template<is_usertype T>
     T unbox(unsafe::Value* in)

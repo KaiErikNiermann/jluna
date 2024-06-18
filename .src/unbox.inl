@@ -179,8 +179,6 @@ namespace jluna
     template<is<std::string> T>
     T unbox(unsafe::Value* value)
     {
-        std::cout << "unboxing string" << std::endl;
-        std::cout << "string -> " << std::string(detail::to_string(value)) << std::endl;
         return std::string(detail::to_string(value));
     }
 
