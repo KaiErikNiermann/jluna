@@ -6,14 +6,6 @@
 
 namespace jluna
 {
-    inline auto single = [](unsafe::Value* in) -> auto {
-        return [&in]<typename T, typename U>() {
-            unbox<T>(in);
-        };
-    };
-
-    using wrapper_t = decltype(single);
-
     template<typename T>
     struct as_julia_type<Usertype<T>>
     {
@@ -26,45 +18,53 @@ namespace jluna
         throw_if_uninitialized();
         _name = std::make_unique<Symbol>(get_name());
     }
+    
+    template <typename T>
+    template <typename... Derived_t>
+    void Usertype<T>::initialize_map() {
+        Usertype<T>::tstr_hash[usertype_enabled<T>::name] = typeid(T).hash_code();
+        ((Usertype<T>::tstr_hash[usertype_enabled<Derived_t>::name] = typeid(Derived_t).hash_code()), ...);
+    }
 
     template <typename T>
-    template <typename... AT>
-    void Usertype<T>::initialize_map() {
-        Usertype<T>::type_to_info[usertype_enabled<T>::name] = typeid(T).hash_code();
+    template <
+        typename... Property, template <typename...> class A,
+        typename... Derived_t, template <typename...> class B
+    >
+    void Usertype<T>::initialize_type(A<Property...>, B<Derived_t...>) {
+        if (not _implemented) implement();
 
-        Usertype<T>::seeker<wrapper_t> = [](const std::string& t_name, const wrapper_t&& op, unsafe::Value* in) {
-            std::size_t type_info = type_to_info[t_name];
+        ([&]() -> void {
+            auto symbol = Symbol(Property::get_name());
 
-            auto lambda = [&op, &type_info, &in]<typename... ATs>() {
-                if (type_info == typeid(T).hash_code()) {
-                    std::cout << "actual type " << typeid(T).name() << std::endl;
-                    op(in).template operator()<T, T>(); // calls unbox on T
-                } else {
-                    ([&type_info, &op, &in]() -> void {
-                        if (type_info == typeid(ATs).hash_code()) {
-                            std::cout << "actual type " << typeid(ATs).name() << std::endl;
-                            op(in).template operator()<ATs, T>(); // calls unbox on ATs
+            if (_mapping.find(symbol) == _mapping.end())
+                _fieldnames_in_order.push_back(symbol);
+
+            _mapping.insert({symbol, {
+                [](T& instance) -> unsafe::Value* {
+                    return jluna::box<typename Property::field_t>(Property::getter(instance));
+                },
+                [](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
+                    auto setter = Property::setter;
+                    bool matched = false;
+
+                    ([&]() -> void {
+                        if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Derived_t).hash_code()) {
+                            auto unboxed_val = jluna::unbox<Derived_t>(value);
+                            setter(instance, &unboxed_val);
+                            matched = true;
+                            return;
                         }
                     }(), ...);
-                }
-            };
 
-            lambda.template operator()<AT...>();
-        };
-
-        (initialize_additional_t_map<AT>(), ...);
-    }
-
-    template <typename T>
-    template <typename U>
-    void Usertype<T>::initialize_additional_t_map() {
-        Usertype<T>::type_to_info[usertype_enabled<U>::name] = typeid(U).hash_code();
-    }
-
-    template<typename T>
-    template<typename lambda_t>
-    void Usertype<T>::dispatch_method(const std::string& t_name, lambda_t&& op, unsafe::Value* in) {
-        Usertype<T>::seeker<wrapper_t>(t_name, op, in);
+                    if (!matched) 
+                        setter(instance, jluna::unbox<typename Property::field_t>(value));
+                },
+                Type((jl_datatype_t*) jl_eval_string(as_julia_type<typename Property::field_t>::type_name.c_str()))
+            }});
+        }(), ...);
+    
+        Usertype<T>::initialize_map<Derived_t...>();
     }
 
     template<typename T>
@@ -86,17 +86,17 @@ namespace jluna
             [box_get](T& instance) -> unsafe::Value* {
                 return jluna::box<Field_t>(box_get(instance));
             },
-            [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str, bool is_primitive) -> void {
+            [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
                 
-                if (Usertype<T>::type_to_info[jl_type_as_str] == typeid(Field_t).hash_code()) {
+                if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Field_t).hash_code()) {
                     std::cout << "a\n";
                     unbox_set(instance, jluna::unbox<Field_t>(value));
                 } else {
                     ([=]() -> void {
-                        if (Usertype<T>::type_to_info[jl_type_as_str] == typeid(Derived_t).hash_code()) {
+                        if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Derived_t).hash_code()) {
                             std::cout << "b\n";
                             Derived_t unboxed_val = jluna::unbox<Derived_t>(value);
-                            unbox_set(instance, &unboxed_val);
+                            // unbox_set(instance, &unboxed_val);
                         }
                     }(), ...);
                 }
@@ -182,7 +182,7 @@ namespace jluna
         gc_pause;
         static jl_function_t* getfield = jl_get_function(jl_base_module, "getfield");
 
-        using _setter_t = std::function<void(T&, unsafe::Value*, std::string, bool)>;
+        using _setter_t = std::function<void(T&, unsafe::Value*, std::string)>;
         auto out = T();
 
         // `pair.first` is a `jl_sym_t*`
@@ -196,16 +196,12 @@ namespace jluna
 
             _setter_t set = std::get<1>(pair.second);
 
-            set(out, val, val_t.get_name(), !(val_t.get_name().compare("String")));
+            set(out, val, val_t.get_name());
         }
 
         gc_unpause;
         return out;
     }
-
-    template<typename T>
-    void Usertype<T>::set_manually_abstract(bool value) { _manual_abstract = value; }
-
 
     template<is_usertype T>
     T unbox(unsafe::Value* in)

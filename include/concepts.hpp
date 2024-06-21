@@ -28,7 +28,7 @@ namespace jluna
     {
         static constexpr bool value = true;
     };
-
+  
     template<class T>
     struct is_same_or_const<T, const T>
     {
@@ -238,6 +238,7 @@ namespace jluna
     {
         constexpr static inline const char* name = "<NO_USERTYPE_NAME_SPECIFIED>";
         constexpr static inline bool value = false;
+        constexpr static inline bool abstract = false;
     };
 
     template<typename T>

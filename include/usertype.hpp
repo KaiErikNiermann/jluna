@@ -17,7 +17,7 @@ namespace jluna
     #define set_usertype_enabled(T) template<> struct jluna::usertype_enabled<T> { \
         constexpr static inline const char* name = #T;   \
         constexpr static inline bool value = true; \
-        constexpr static inline bool abstract = !(is_default_constructible<T>); \
+        constexpr static inline bool abstract = std::is_abstract_v<T>; \
     }; 
 
     /// @brief customizable wrapper for non-julia type T
@@ -34,14 +34,14 @@ namespace jluna
 
             static inline auto self = T();
 
-            template <typename... AT>
+            template<
+                typename... Property, template <typename...> class A, 
+                typename... Derived_t, template <typename...> class B
+            >
+            static void initialize_type(A<Property...>, B<Derived_t...>);
+
+            template <typename... Derived_t>
             static void initialize_map();
-
-            template <typename U>
-            static void initialize_additional_t_map();
-
-            template <typename lambda_t>
-            static void dispatch_method(const std::string& t_name, lambda_t&& op, unsafe::Value* in);
 
             /// @brief ctor delete, static-only interface
             Usertype() = delete;
@@ -91,16 +91,13 @@ namespace jluna
 
             static inline std::map<Symbol, std::tuple<
                 std::function<unsafe::Value*(T&)>,        // getter
-                std::function<void(T&, unsafe::Value*, std::string, bool is_primitve)>,   // setter
+                std::function<void(T&, unsafe::Value*, std::string)>,   // setter
                 Type
             >> _mapping = {};
-            
-            static inline void set_manually_abstract(bool value);
 
-            static inline std::unordered_map<std::string, std::size_t> type_to_info;
         private:
-            template<typename wrapper>
-            static inline std::function<void(const std::string&, const wrapper, unsafe::Value*)> seeker;
+            static inline bool _is_abstract = usertype_enabled<T>::is_abstract;
+            static inline std::map<std::string, std::size_t> tstr_hash;
 
             static void initialize();
             static inline bool _implemented = false;
