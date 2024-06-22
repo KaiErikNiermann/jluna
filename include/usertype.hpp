@@ -32,8 +32,6 @@ namespace jluna
             /// @brief original type
             using original_type = T;
 
-            static inline auto self = T();
-
             template<
                 typename... Property, template <typename...> class A, 
                 typename... Derived_t, template <typename...> class B

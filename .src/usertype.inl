@@ -32,8 +32,6 @@ namespace jluna
         typename... Derived_t, template <typename...> class B
     >
     void Usertype<T>::initialize_type(A<Property...>, B<Derived_t...>) {
-        if (not _implemented) implement();
-
         ([&]() -> void {
             auto symbol = Symbol(Property::get_name());
 
@@ -47,13 +45,15 @@ namespace jluna
                 [](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
                     auto setter = Property::setter;
                     bool matched = false;
-
+                    using field_t = std::remove_pointer_t<typename Property::field_t>;
                     ([&]() -> void {
                         if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Derived_t).hash_code()) {
-                            auto unboxed_val = jluna::unbox<Derived_t>(value);
-                            setter(instance, &unboxed_val);
-                            matched = true;
-                            return;
+                            if constexpr (std::is_base_of_v<field_t, Derived_t>) {
+                                auto unboxed_val = jluna::unbox<Derived_t>(value);
+                                setter(instance, &unboxed_val);
+                                matched = true;
+                                return;
+                            }
                         }
                     }(), ...);
 
@@ -137,12 +137,15 @@ namespace jluna
         static jl_function_t* setfield = jl_get_function(jl_base_module, "setindex!");
         static jl_value_t* _abstract = jl_box_bool(Usertype<T>::is_abstract());
 
-        auto default_instance = T();
         auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
 
-        for (auto& field_name : _fieldnames_in_order)
-            jluna::safe_call(setfield, template_proxy, (unsafe::Value*) std::get<0>(_mapping.at(field_name))(default_instance), (unsafe::Value*) field_name);
-        
+        // Instantiate default instance if not abstract
+        if constexpr (!std::is_abstract_v<T>) {
+            auto default_instance = T();
+            for (auto& field_name : _fieldnames_in_order)
+                jluna::safe_call(setfield, template_proxy, (unsafe::Value*) std::get<0>(_mapping.at(field_name))(default_instance), (unsafe::Value*) field_name);
+        }
+
         _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
 
         _implemented = true;
@@ -176,6 +179,9 @@ namespace jluna
     template<typename T>
     T Usertype<T>::unbox(unsafe::Value* in)
     {
+        if (Usertype<T>::is_abstract())
+            throw std::runtime_error("cannot unbox abstract type");
+
         if (not _implemented)
             implement();
 
@@ -187,8 +193,8 @@ namespace jluna
 
         // `pair.first` is a `jl_sym_t*`
         // `pair.second` is a `std::tuple<getter, setter, Type>`
-        std::cout << "unboxing -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), in)) << std::endl;
-        std::cout << "unboxing_t -> " << typeid(self).name() << std::endl;
+        // std::cout << "unboxing -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), in)) << std::endl;
+        // std::cout << "unboxing_t -> " << typeid(out).name() << std::endl;
         for (auto& pair : _mapping) {
 
             jl_value_t* val = jluna::safe_call(getfield, in, (unsafe::Value*) pair.first);
