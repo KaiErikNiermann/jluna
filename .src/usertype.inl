@@ -42,23 +42,35 @@ namespace jluna
                 [](T& instance) -> unsafe::Value* {
                     return jluna::box<typename Property::field_t>(Property::getter(instance));
                 },
-                [](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
+                [&](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
+                    bool set = false;
                     auto setter = Property::setter;
-                    bool matched = false;
                     using field_t = std::remove_pointer_t<typename Property::field_t>;
+
+                    if (_inline_cache.find(jl_type_as_str) != _inline_cache.end()) {
+                        _inline_cache.at(jl_type_as_str)(instance, value);
+                        return;
+                    } 
+
                     ([&]() -> void {
                         if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Derived_t).hash_code()) {
                             if constexpr (std::is_base_of_v<field_t, Derived_t>) {
-                                auto unboxed_val = jluna::unbox<Derived_t>(value);
-                                setter(instance, &unboxed_val);
-                                matched = true;
+                                _inline_cache.insert({jl_type_as_str, 
+                                    [=](T& instance, unsafe::Value* value) -> void { 
+                                        Derived_t unboxed_val = jluna::unbox<Derived_t>(value);
+                                        setter(instance, &unboxed_val);
+                                    }
+                                });
+                                _inline_cache.at(jl_type_as_str)(instance, value);
+                                set = true;
                                 return;
                             }
-                        }
+                        } 
                     }(), ...);
 
-                    if (!matched) 
-                        setter(instance, jluna::unbox<typename Property::field_t>(value));
+                    if (!set) {
+                        setter(instance, jluna::unbox<typename Property::field_t>(value));             
+                    }
                 },
                 Type((jl_datatype_t*) jl_eval_string(as_julia_type<typename Property::field_t>::type_name.c_str()))
             }});
@@ -89,12 +101,10 @@ namespace jluna
             [unbox_set](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
                 
                 if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Field_t).hash_code()) {
-                    std::cout << "a\n";
                     unbox_set(instance, jluna::unbox<Field_t>(value));
                 } else {
                     ([=]() -> void {
                         if (Usertype<T>::tstr_hash[jl_type_as_str] == typeid(Derived_t).hash_code()) {
-                            std::cout << "b\n";
                             Derived_t unboxed_val = jluna::unbox<Derived_t>(value);
                             // unbox_set(instance, &unboxed_val);
                         }
@@ -191,10 +201,6 @@ namespace jluna
         using _setter_t = std::function<void(T&, unsafe::Value*, std::string)>;
         auto out = T();
 
-        // `pair.first` is a `jl_sym_t*`
-        // `pair.second` is a `std::tuple<getter, setter, Type>`
-        // std::cout << "unboxing -> " << jl_string_ptr(jl_call1(jl_get_function(jl_base_module, "string"), in)) << std::endl;
-        // std::cout << "unboxing_t -> " << typeid(out).name() << std::endl;
         for (auto& pair : _mapping) {
 
             jl_value_t* val = jluna::safe_call(getfield, in, (unsafe::Value*) pair.first);

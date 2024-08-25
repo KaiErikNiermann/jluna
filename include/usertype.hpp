@@ -93,6 +93,8 @@ namespace jluna
                 Type
             >> _mapping = {};
 
+            static inline std::map<std::string, std::function<void(T&, unsafe::Value*)>> _inline_cache = {};
+
         private:
             static inline bool _is_abstract = usertype_enabled<T>::is_abstract;
             static inline std::map<std::string, std::size_t> tstr_hash;
