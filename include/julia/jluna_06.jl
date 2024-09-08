@@ -142,7 +142,7 @@ struct ProxyInternal
     _lock::Base.ReentrantLock
 
     ProxyInternal() = new(Vector{Symbol}(), Dict{Symbol, Union{Any, Missing}}(), Base.ReentrantLock())
-end
+end 
 
 # proxy as deepcopy of cpp-side usertype object
 struct Proxy
@@ -165,27 +165,54 @@ new_proxy(name::Symbol) = return Proxy(name)
 
 translate a usertype proxy into an actual julia type
 """
-function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false) ::Type
-    # println("implementing ", template._typename, " in module ", m)
-    # println("is_abstract: ", is_abstract)
+function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false, subtype::Union{DataType, Missing} = missing)::Type
+    println("\n")
+    println("implementing ", template._typename, " in module ", m)
+    println("is_abstract: ", is_abstract)
+
     @lock template._value._lock begin
-        out::Expr = :(mutable struct $(template._typename) end)
-        deleteat!(out.args[3].args, 1)
-        
-        for name in template._value._fieldnames_in_order
-            push!(out.args[3].args, Expr(:(::), name, :($(typeof(template._value._fields[name])))))
+        out::Expr = :(abstract type $(template._typename) end)
+
+        if is_abstract
+            # Create an abstract type
+            out = :(abstract type $(template._typename) end)
+        else
+            out = :(mutable struct $(template._typename) end)
+
+            if subtype !== missing 
+                out = :(mutable struct $(template._typename) <: $subtype end)
+            end
+
+            deleteat!(out.args[3].args, 1)
+
+            # Add fields to the mutable struct
+            for name in template._value._fieldnames_in_order
+                field_value = template._value._fields[name]
+                
+                # Determine whether to use the value directly or extract its type
+                field_type = isa(field_value, DataType) ? field_value : typeof(field_value)
+
+                push!(out.args[3].args, Expr(:(::), name, field_type))
+            end
+
+            # Create the constructor
+            new_call::Expr = Expr(:(=), Expr(:call, template._typename), Expr(:call, :new))
+            for name in template._value._fieldnames_in_order
+                field_value = template._value._fields[name]
+                if !isa(field_value, DataType) 
+                    push!(new_call.args[1].args, Expr(:(::), name, typeof(field_value)))
+                    push!(new_call.args[2].args, name)
+                end
+            end
+            push!(out.args[3].args, new_call)
+            push!(out.args[3].args, Expr(:(=), Expr(:call, template._typename), Expr(:call, :new)))
         end
-        
-        new_call::Expr = Expr(:(=), Expr(:call, template._typename), Expr(:call, :new))
-        
-        for name in template._value._fieldnames_in_order
-            push!(new_call.args[2].args, template._value._fields[name])
-        end
-        
-        push!(out.args[3].args, new_call)
-        # println(out)
+
+        println(out)
+        println("\n")
         Base.eval(m, out)
     end
+
     return m.eval(template._typename)
 end
 

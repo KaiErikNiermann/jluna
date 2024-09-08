@@ -118,6 +118,7 @@ namespace jluna
         forward_last_exception();
 
         auto* res = jl_eval_string(detail::julia_source.c_str());
+
         assert(res != nullptr && jl_unbox_bool(res));
 
         jl_eval_string(R"(

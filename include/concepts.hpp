@@ -243,4 +243,7 @@ namespace jluna
 
     template<typename T>
     concept is_usertype = usertype_enabled<T>::value;
+
+    template<typename T>
+    concept is_abstract = usertype_enabled<T>::abstract;
 }

@@ -39,8 +39,38 @@ namespace jluna
                 _fieldnames_in_order.push_back(symbol);
 
             _mapping.insert({symbol, {
-                [](T& instance) -> unsafe::Value* {
-                    return jluna::box<typename Property::field_t>(Property::getter(instance));
+                [](T& instance, bool init) -> unsafe::Value* {
+                    auto getter = Property::getter;
+                    auto ret_val = getter(instance);
+                    
+                    // if T is a pointer print true 
+
+                    using field_t = std::remove_pointer_t<typename Property::field_t>;
+                    unsafe::Value* res = nullptr;
+
+                    if constexpr (std::is_abstract_v<field_t>) {
+                        if (!_implemented) {
+                            return Usertype<field_t>::_type->operator unsafe::Value*();
+                        }
+                    }
+
+                    // std::cout << "trying to box " << typeid(typename Property::field_t).name() << std::endl;
+
+                    ([&]() -> void {
+                        if constexpr (std::is_base_of_v<field_t, Derived_t>) {
+                            // std::cout << "trying cast to " << typeid(Derived_t).name() << std::endl;
+                            if (auto val = dynamic_cast<Derived_t*>(ret_val)) {
+                                // std::cout << "boxing here 3" << std::endl;
+                                res = jluna::box<Derived_t>(*val);
+                            }
+                        }
+                    }(), ...);
+                    
+                    if (res != nullptr) return res;
+                    
+                    // std::cout << "boxing here 2" << std::endl;
+                    // std::cout << "calling box for type " << typeid(typename Property::field_t).name() << std::endl;
+                    return jluna::box<typename Property::field_t>(ret_val);
                 },
                 [&](T& instance, unsafe::Value* value, std::string jl_type_as_str) -> void {
                     bool set = false;
@@ -136,6 +166,7 @@ namespace jluna
     }
 
     template<typename T>
+    template<typename U>
     void Usertype<T>::implement(unsafe::Module* module)
     {
         if (_name.get() == nullptr)
@@ -146,17 +177,35 @@ namespace jluna
         static jl_function_t* new_proxy = unsafe::get_function("jluna"_sym, "new_proxy"_sym);
         static jl_function_t* setfield = jl_get_function(jl_base_module, "setindex!");
         static jl_value_t* _abstract = jl_box_bool(Usertype<T>::is_abstract());
+        static jl_function_t* isabstract = jl_get_function(jl_base_module, "isabstracttype");
+        // static jl_function_t* println = jl_get_function(jl_base_module, "println");
+        static jl_function_t* _typeof = jl_get_function(jl_base_module, "typeof");
+        static jl_function_t* _isa = jl_get_function(jl_base_module, "isa");
+
+        // std::cout << "started implementing type " << typeid(T).name() << std::endl;
 
         auto* template_proxy = jluna::safe_call(new_proxy, _name->operator unsafe::Value*());
 
+        // // jluna::safe_call(jl_get_function(jl_base_module, "println"), (unsafe::Value*) template_proxy);
         // Instantiate default instance if not abstract
         if constexpr (!std::is_abstract_v<T>) {
             auto default_instance = T();
-            for (auto& field_name : _fieldnames_in_order)
-                jluna::safe_call(setfield, template_proxy, (unsafe::Value*) std::get<0>(_mapping.at(field_name))(default_instance), (unsafe::Value*) field_name);
+            // std::cout << "Instantiating default instance" << std::endl;
+            for (auto& field_name : _fieldnames_in_order) {
+                auto* type_or_instance = std::get<0>(_mapping.at(field_name))(default_instance, true);
+                jluna::safe_call(setfield, template_proxy, (unsafe::Value*) type_or_instance, (unsafe::Value*) field_name);
+                // // jluna::safe_call(jl_get_function(jl_base_module, "println"), (unsafe::Value*) template_proxy);
+            }
         }
 
-        _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
+        if constexpr (std::is_base_of_v<U, T> && !std::is_abstract_v<T> && !std::is_same_v<U, T>) {
+            // std::cout << "Implementing subtype " << typeid(U).name() << std::endl;
+            // std::cout << "Implementing subtype " << typeid(T).name() << std::endl;
+            auto* subtype = Usertype<U>::_type->operator unsafe::Value*();
+            _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract, subtype));
+        } else {
+            _type = std::make_unique<Type>((jl_datatype_t*) jluna::safe_call(implement, template_proxy, module, _abstract));
+        }
 
         _implemented = true;
         gc_unpause;
@@ -171,16 +220,27 @@ namespace jluna
     template<typename T>
     unsafe::Value* Usertype<T>::box(T& in)
     {
-        if (not _implemented)
+        if (not _implemented)   
             implement();
+
 
         gc_pause;
         static jl_function_t* setfield = jl_get_function(jl_base_module, "setfield!");
 
+        // calls the constructor of the type 
         unsafe::Value* out = jl_call0(_type->operator unsafe::Value*());
+        // std::cout << "Boxing type " << get_name() << std::endl;
 
-        for (auto& pair : _mapping)
-            jluna::safe_call(setfield, out, (unsafe::Value*) pair.first, std::get<0>(pair.second)(in));
+        for (auto& pair : _mapping) {
+            // std::cout << "Boxing field " << std::endl;
+            auto* val = std::get<0>(pair.second)(in, false);
+            // std::cout << "Boxed value, setting" << std::endl;
+            // std::cout << "field of type " << typeid(in).name() << std::endl;
+            // jluna::safe_call(jl_get_function(jl_base_module, "println"), (unsafe::Value*) val);
+            // jluna::safe_call(jl_get_function(jl_base_module, "println"), (unsafe::Value*) pair.first);
+            jluna::safe_call(setfield, out, (unsafe::Value*) pair.first, val);
+            // std::cout << "Field set" << std::endl;
+        }
 
         gc_unpause;
         return out;

@@ -69,6 +69,7 @@ namespace jluna
 
             /// @brief create the type, setup through the interface, julia-side
             /// @param module: module in which the type is evaluated
+            template <typename U = T>
             static void implement(unsafe::Module* module = Main);
 
             /// @brief has implement() been called at least once
@@ -88,12 +89,13 @@ namespace jluna
             static T unbox(unsafe::Value*);
 
             static inline std::map<Symbol, std::tuple<
-                std::function<unsafe::Value*(T&)>,        // getter
+                std::function<unsafe::Value*(T&, bool)>,        // getter
                 std::function<void(T&, unsafe::Value*, std::string)>,   // setter
                 Type
             >> _mapping = {};
 
             static inline std::map<std::string, std::function<void(T&, unsafe::Value*)>> _inline_cache = {};
+            static inline std::unique_ptr<Type> _type = std::unique_ptr<Type>(nullptr);
 
         private:
             static inline bool _is_abstract = usertype_enabled<T>::is_abstract;
@@ -103,7 +105,6 @@ namespace jluna
             static inline bool _implemented = false;
             static inline bool _manual_abstract = false;
 
-            static inline std::unique_ptr<Type> _type = std::unique_ptr<Type>(nullptr);
             static inline std::unique_ptr<Symbol> _name = std::unique_ptr<Symbol>(nullptr);
 
             static inline std::vector<Symbol> _fieldnames_in_order = {};
