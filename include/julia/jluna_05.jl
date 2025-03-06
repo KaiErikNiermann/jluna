@@ -76,7 +76,7 @@ module memory_handler
         reg = r"\Q((jluna.memory_handler._refs[])[\E(.*)\Q])[]\E"
         captures = match(reg, out)
 
-        if captures != nothing
+        if captures !== nothing
             out = replace(out, reg => "<unnamed proxy #" * string(tryparse(Int64, captures.captures[1])) * ">")
         end
 

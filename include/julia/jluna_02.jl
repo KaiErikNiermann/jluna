@@ -79,8 +79,8 @@ function get_argument_types_of_nth_method(f::Function, i::Integer) ::Vector{Type
 
     out = Vector{Type}()
     types = methods(f)[i].sig.types
-
-    for i in 2:length(types)
+    
+    for i in eachindex(types)[2:end]
         push!(out, types[i])
     end
 

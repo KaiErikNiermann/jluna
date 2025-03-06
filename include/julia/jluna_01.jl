@@ -5,7 +5,7 @@ module jluna
 
 safely call any function, while forwarding any exception that may have occurred
 """
-function safe_call(f::Function, args...)
+function safe_call(f::H, args::Vararg{Any, N}) where {H, N}
 
     res::Any = undef
 
@@ -76,7 +76,7 @@ end
 """
 `get_n_fields(::Type) -> Int64`
 """
-function get_n_fields(type::Type) ::Int64
+function get_n_fields(type::Type{T}) ::Int64 where T
     return length(fieldnames(type))
 end
 

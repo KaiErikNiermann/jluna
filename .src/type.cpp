@@ -14,6 +14,8 @@ namespace jluna
         {
             static auto* propertynames = jl_get_function(jl_main_module, "propertynames");
             static auto* sizeof_f = jl_get_function(jl_main_module, "sizeof");
+            static auto* print_ln = jl_get_function(jl_base_module, "println");
+
             return jl_unbox_int64(jl_call1(sizeof_f, jl_call1(propertynames, (jl_value_t*) type))) == 0;
         }
     }

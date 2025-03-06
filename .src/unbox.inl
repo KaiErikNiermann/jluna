@@ -13,45 +13,35 @@ namespace jluna
         T smart_unbox_primitive(unsafe::Value* in)
         {
             bool first_attempt = true;
-            retry:
 
-            if (jl_isa(in, (unsafe::Value*) jl_bool_type))
-                return static_cast<T>(jl_unbox_bool(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_int8_type))
-                return static_cast<T>(jl_unbox_int8(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_int16_type))
-                return static_cast<T>(jl_unbox_int16(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_int32_type))
-                return static_cast<T>(jl_unbox_int32(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_int64_type))
-                return static_cast<T>(jl_unbox_int64(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_uint8_type))
-                return static_cast<T>(jl_unbox_uint8(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_uint16_type))
-                return static_cast<T>(jl_unbox_uint16(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_uint32_type))
-                return static_cast<T>(jl_unbox_uint32(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_uint64_type))
-                return static_cast<T>(jl_unbox_uint64(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_float32_type))
-                return static_cast<T>(jl_unbox_float32(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_float64_type))
-                return static_cast<T>(jl_unbox_float64(in));
-            else if (jl_isa(in, (unsafe::Value*) jl_float16_type))
-                return static_cast<T>(jl_unbox_float32(detail::convert(jl_float32_type, in)));
-            else if (jl_isa(in, (unsafe::Value*) jl_char_type))
-                return static_cast<T>(jl_unbox_int32(detail::convert(jl_int32_type, in)));
-            else
-            {
-                if (not first_attempt)
-                    return 0;
+            static const std::vector<std::pair<unsafe::DataType*, std::function<T(unsafe::Value*)>>> type_map = {
+                { jl_bool_type,   [](auto* v) { return static_cast<T>(jl_unbox_bool(v)); } },
+                { jl_int8_type,   [](auto* v) { return static_cast<T>(jl_unbox_int8(v)); } },
+                { jl_int16_type,  [](auto* v) { return static_cast<T>(jl_unbox_int16(v)); } },
+                { jl_int32_type,  [](auto* v) { return static_cast<T>(jl_unbox_int32(v)); } },
+                { jl_int64_type,  [](auto* v) { return static_cast<T>(jl_unbox_int64(v)); } },
+                { jl_uint8_type,  [](auto* v) { return static_cast<T>(jl_unbox_uint8(v)); } },
+                { jl_uint16_type, [](auto* v) { return static_cast<T>(jl_unbox_uint16(v)); } },
+                { jl_uint32_type, [](auto* v) { return static_cast<T>(jl_unbox_uint32(v)); } },
+                { jl_uint64_type, [](auto* v) { return static_cast<T>(jl_unbox_uint64(v)); } },
+                { jl_float32_type, [](auto* v) { return static_cast<T>(jl_unbox_float32(v)); } },
+                { jl_float64_type, [](auto* v) { return static_cast<T>(jl_unbox_float64(v)); } },
+                { jl_float16_type, [](auto* v) { return static_cast<T>(jl_unbox_float32(detail::convert(jl_float32_type, v))); } },
+                { jl_char_type,   [](auto* v) { return static_cast<T>(jl_unbox_int32(detail::convert(jl_int32_type, v))); } }
+            };
 
-                in = detail::convert(as_julia_type<T>::type(), in);
-                first_attempt = false;
-                goto retry;
-            }
+            static auto type_it = [](auto* val) {
+                return std::find_if(type_map.begin(), type_map.end(), [&](const auto& pair) { return pair.first == (unsafe::DataType*)jl_typeof(val); });
+            };
 
-            return 0;
+            auto it = type_it(in);
+            if (it != type_map.end()) 
+                return it->second(in);
+            
+            in = detail::convert(as_julia_type<T>::type(), in);
+            it = type_it(in);
+
+            return (it != type_map.end()) ? it->second(in) : static_cast<T>(0); 
         }
     }
 
@@ -186,7 +176,7 @@ namespace jluna
     T unbox(unsafe::Value* value)
     {
         gc_pause;
-        static auto* type = (jl_datatype_t*) jl_eval_string(("return " + as_julia_type<std::complex<Value_t>>::type_name).c_str());
+        static auto* type = (unsafe::DataType*) jl_eval_string(("return " + as_julia_type<std::complex<Value_t>>::type_name).c_str());
         auto* res = detail::convert(type, value);
 
         auto* re = jl_get_nth_field(res, 0);

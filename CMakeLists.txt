@@ -1,5 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
-
+cmake_minimum_required(VERSION 3.20)  
 #[=======================================================================[.rst:
 
 Build jluna
@@ -122,10 +121,10 @@ add_library(jluna SHARED
     .src/c_adapter.cpp
 )
 
-target_compile_features(jluna PUBLIC cxx_std_20)
+target_compile_features(jluna PUBLIC cxx_std_23)
 
 if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(jluna PUBLIC "-fpic")
+    target_compile_options(jluna PUBLIC "-fpic" "-O3" "-ltbb" "-ftree-vectorize")
 endif()
 
 target_include_directories(jluna PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>")
@@ -147,19 +146,21 @@ if(NOT CMAKE_SKIP_INSTALL_RULES)
     include(cmake/install-rules.cmake)
 endif()
 
-# include(CTest)
+include(CTest)
 ### Declare Test ###
 
-# option(BUILD_TESTING "Enable jluna_test" OFF)
-# if (BUILD_TESTING)
-#     add_executable(
-#         jluna_test
-#         .test/main.cpp
-#         .test/test.hpp
-#     )
-#     target_link_libraries(jluna_test PRIVATE jluna)
-#     add_test(NAME jluna_test COMMAND jluna_test)
-# endif()
+option(BUILD_TESTING "Enable jluna_test" ON)
+if (BUILD_TESTING)
+    enable_testing()
+    add_executable(
+        jluna_test
+        .test/main.cpp
+        .test/demo.hpp
+        .test/test.hpp
+    )
+    target_link_libraries(jluna_test PRIVATE jluna)
+    add_test(NAME jluna_test COMMAND jluna_test)
+endif()
 
 ### Developer mode ###
 

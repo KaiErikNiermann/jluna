@@ -33,3 +33,9 @@ namespace jluna
         static inline const std::string type_name = "Symbol";
     };
 }
+
+template <> struct std::hash<jluna::Symbol> {
+    std::size_t operator()(const jluna::Symbol& s) const noexcept {
+        return s.hash();
+    }
+};

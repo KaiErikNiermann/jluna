@@ -21,9 +21,13 @@ namespace jluna
         detail::assert_type((unsafe::DataType*) jl_typeof(owner->operator unsafe::Value*()), jl_module_type);
     }
 
+    std::once_flag flag;
+
     Module::~Module()
     {
-        delete _lock;
+        std::call_once(flag, [&]() {
+            delete _lock;
+        });
     }
 
     jl_module_t * Module::value() const
@@ -82,9 +86,9 @@ namespace jluna
         return {value()->name};
     }
 
-    void Module::initialize_lock()
-    {
-        if (_lock == nullptr)
+    void Module::initialize_lock() {
+        std::call_once(flag, [&]() {
             _lock = new Mutex();
+        });
     }
 }

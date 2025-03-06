@@ -26,21 +26,21 @@ namespace jluna
         {
             Result()
                 : _min(0),
-                  _max(0),
-                  _average(0),
-                  _median(0),
-                  _n_loops(-1),
-                  _exception_maybe()
+                    _max(0),
+                    _average(0),
+                    _median(0),
+                    _n_loops(-1),
+                    _exception_maybe()
             {}
 
             Result(std::string name, Duration min, Duration max, Duration average, Duration median, size_t n_loops, std::string exception_maybe)
             : _name(name),
-              _min(min),
-              _max(max),
-              _average(average),
-              _median(median),
-              _n_loops(n_loops),
-              _exception_maybe(exception_maybe)
+                _min(min),
+                _max(max),
+                _average(average),
+                _median(median),
+                _n_loops(n_loops),
+                _exception_maybe(exception_maybe)
             {}
             
             std::string _name;

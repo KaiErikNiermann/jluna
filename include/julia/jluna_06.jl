@@ -10,7 +10,7 @@ module cppcall
     function verify_library() ::Bool
         out = false
         try
-            out = ccall((:jluna_verify, cppcall._lib), Bool, ())
+            out = @ccall cppcall._lib.jluna_verify()::Bool
         catch e
             println(Base.stderr, "[JULIA][ERROR] In jluna.verify_library: Unable to locate jluna shared library at `", cppcall._lib, "`. You can specify the correct path manually when calling jluna::initialize.`")
         end
@@ -36,7 +36,7 @@ module cppcall
 
             out = new{N}(ptr, N)
             finalizer(function (t::UnnamedFunction{N})
-                ccall((:jluna_free_lambda, cppcall._lib), Cvoid, (Csize_t, Cint), t._native_handle, t._n_args)
+                @ccall cppcall._lib.jluna_free_lambda(t._native_handle::Csize_t, t._n_args::Cint)::Cvoid
             end, out);
 
             return out;
@@ -48,7 +48,7 @@ module cppcall
 
     wrapper for UnnamedFunction ctor
     """
-    function make_unnamed_function(ptr::Ptr{Cvoid}, n::Integer)
+    function make_unnamed_function(ptr::Ptr{Cvoid}, n::Integer) ::UnnamedFunction{n}
         return UnnamedFunction{n}(ptr)
     end
 
@@ -58,22 +58,22 @@ module cppcall
     invoke function with 0 args
     """
     function invoke_function(f::UnnamedFunction{0}) ::Ptr{Any}
-        return ccall((:jluna_invoke_lambda_0, cppcall._lib), Ptr{Any}, (Ptr{Cvoid},), f._native_handle);
+        return @ccall cppcall._lib.jluna_invoke_lambda_0(f._native_handle::Ptr{Cvoid})::Ptr{Any}
     end
 
     # overload for 1 arg
     function invoke_function(f::UnnamedFunction{1}, arg1::Ptr{Any}) ::Ptr{Any}
-        return ccall((:jluna_invoke_lambda_1, cppcall._lib), Ptr{Any}, (Ptr{Cvoid}, Ptr{Any}), f._native_handle, arg1);
+        return @ccall cppcall._lib.jluna_invoke_lambda_1(f._native_handle::Ptr{Cvoid}, arg1::Ptr{Any})::Ptr{Any}
     end
 
     # overload for 2 args
     function invoke_function(f::UnnamedFunction{2}, arg1::Ptr{Any}, arg2::Ptr{Any}) ::Ptr{Any}
-        return ccall((:jluna_invoke_lambda_2, cppcall._lib), Ptr{Any}, (Ptr{Cvoid}, Ptr{Any}, Ptr{Any}), f._native_handle, arg1, arg2);
+        return @ccall cppcall._lib.jluna_invoke_lambda_2(f._native_handle::Ptr{Cvoid}, arg1::Ptr{Any}, arg2::Ptr{Any})::Ptr{Any}
     end
 
     # overload for 3 args
     function invoke_function(f::UnnamedFunction{3}, arg1::Ptr{Any}, arg2::Ptr{Any}, arg3::Ptr{Any}) ::Ptr{Any}
-        return ccall((:jluna_invoke_lambda_3, cppcall._lib), Ptr{Any}, (Ptr{Cvoid}, Ptr{Any}, Ptr{Any}, Ptr{Any}), f._native_handle, arg1, arg2, arg3);
+        return @ccall cppcall._lib.jluna_invoke_lambda_3(f._native_handle::Ptr{Cvoid}, arg1::Ptr{Any}, arg2::Ptr{Any}, arg3::Ptr{Any})::Ptr{Any}
     end
 
     """
@@ -82,42 +82,39 @@ module cppcall
     get pointer to any object (including immutable ones)
     """
     function to_pointer(x) ::Ptr{Any}
-        return ccall((:jluna_to_pointer, cppcall._lib), Ptr{Cvoid}, (Any,), x)
+        return @ccall cppcall._lib.jluna_to_pointer(x::Any)::Ptr{Cvoid}
     end
-
+    
     """
     `from_pointer(::Ptr{Any}) -> Any`
-
+    
     wrap unsafe_pointer_to_objref
     """
-    function from_pointer(ptr::Ptr{Any})
+    function from_pointer(ptr::Ptr{T}) :: T where T 
         return unsafe_pointer_to_objref(ptr)
     end
+    
+    """
+    invoke UnnamedFunction, trivial cases
+    """
+    (f::UnnamedFunction{0})() = from_pointer(invoke_function(f))
+    (f::UnnamedFunction{1})(x) = from_pointer(invoke_function(f, to_pointer(x)))
+    (f::UnnamedFunction{2})(x, y) = from_pointer(invoke_function(f, to_pointer(x), to_pointer(y)))
+    (f::UnnamedFunction{3})(x, y, z) = from_pointer(invoke_function(f, to_pointer(x), to_pointer(y), to_pointer(z)))
 
     """
     `UnnamedFunction(xs...) -> Any`
 
     invoke UnnamedFunction, checks for correct number of arguments
     """
-    function (f::UnnamedFunction{N})(xs...) where N
-
-        n = length(xs)
-
-        if n == N == 0
-            return from_pointer(invoke_function(f));
-        elseif n == N == 1
-            return from_pointer(invoke_function(f, to_pointer(xs[1])));
-        elseif n == N == 2
-            return from_pointer(invoke_function(f, to_pointer(xs[1]), to_pointer(xs[2])));
-        elseif n == N == 3
-            return from_pointer(invoke_function(f, to_pointer(xs[1]), to_pointer(xs[2]), to_pointer(xs[3])));
-        elseif N != 0 && N != 1 && N != 2 & N != 3
+    function (f::UnnamedFunction{N1})(xs::Vararg{Any, N2}) where {N1, N2}
+        if N1 != 0 && N1 != 1 && N1 != 2 & N1 != 3
             return from_pointer(invoke_function(f, to_pointer([xs...])));
         else
             throw(ErrorException(
                 "MethodError: when trying to invoke <C++ Lambda#" * string(f._native_handle) * ">" *
-                ": wrong number of arguments. expected " * string(N) * ", got " * string(n) * "."
-               *  (n <= 3 ? "" : "\n\nTo create a C++-function that can take n > 3 arguments, simply make a 1-argument function with the only argument being an n-sized tuple or collection.")
+                ": wrong number of arguments. expected " * string(N1) * ", got " * string(N2) * "."
+               *  (N2 <= 3 ? "" : "\n\nTo create a C++-function that can take n > 3 arguments, simply make a 1-argument function with the only argument being an n-sized tuple or collection.")
             ))
         end
     end
@@ -128,7 +125,7 @@ module cppcall
     """
     function make_task(ptr::UInt64)
         return Task() do;
-            res_ptr = ccall((:jluna_invoke_from_task, _lib), Csize_t, (Csize_t,), ptr);
+            res_ptr = @ccall cppcall._lib.jluna_invoke_from_task(ptr::Csize_t)::Csize_t
             return unsafe_pointer_to_objref(Ptr{Any}(res_ptr))
         end
     end
@@ -166,50 +163,46 @@ new_proxy(name::Symbol) = return Proxy(name)
 translate a usertype proxy into an actual julia type
 """
 function implement(template::Proxy, m::Module = Main, is_abstract::Bool = false, subtype::Union{DataType, Missing} = missing)::Type
-    println("\n")
-    println("implementing ", template._typename, " in module ", m)
-    println("is_abstract: ", is_abstract)
-
     @lock template._value._lock begin
         out::Expr = :(abstract type $(template._typename) end)
 
-        if is_abstract
-            # Create an abstract type
-            out = :(abstract type $(template._typename) end)
-        else
-            out = :(mutable struct $(template._typename) end)
-
+        if !is_abstract
             if subtype !== missing 
                 out = :(mutable struct $(template._typename) <: $subtype end)
+            else 
+                out = :(mutable struct $(template._typename) end)
             end
 
-            deleteat!(out.args[3].args, 1)
+            # args of body Expr for struct
+            struct_member_array = out.args[3].args
 
-            # Add fields to the mutable struct
-            for name in template._value._fieldnames_in_order
-                field_value = template._value._fields[name]
+            empty_new = Expr(:(=), Expr(:call, template._typename), Expr(:call, :new))
+
+            default_new::Expr = deepcopy(empty_new)
+
+            # add fields to struct and create constructor
+            for field_label in template._value._fieldnames_in_order
+                type_or_instance = template._value._fields[field_label]
+                is_datatype = isa(type_or_instance, DataType)
+                field_type = is_datatype ? type_or_instance : typeof(type_or_instance)
+
+                member_expr = :($(field_label)::$(field_type))
+
+                push!(struct_member_array, member_expr)
+
+                # default_new(field_label::field_type, ...)
+                push!(default_new.args[1].args, member_expr)
                 
-                # Determine whether to use the value directly or extract its type
-                field_type = isa(field_value, DataType) ? field_value : typeof(field_value)
-
-                push!(out.args[3].args, Expr(:(::), name, field_type))
+                # default_new(...) = new(field_label, ...)
+                push!(default_new.args[2].args, field_label)
             end
 
-            # Create the constructor
-            new_call::Expr = Expr(:(=), Expr(:call, template._typename), Expr(:call, :new))
-            for name in template._value._fieldnames_in_order
-                field_value = template._value._fields[name]
-                if !isa(field_value, DataType) 
-                    push!(new_call.args[1].args, Expr(:(::), name, typeof(field_value)))
-                    push!(new_call.args[2].args, name)
-                end
+            push!(struct_member_array, default_new)
+
+            if length(default_new.args[1].args) > 1 # non empty new constructor
+                push!(struct_member_array, deepcopy(empty_new))
             end
-            push!(out.args[3].args, new_call)
-            push!(out.args[3].args, Expr(:(=), Expr(:call, template._typename), Expr(:call, :new)))
         end
-
-        println(out)
-        println("\n")
         Base.eval(m, out)
     end
 
@@ -246,4 +239,5 @@ function Base.getindex(proxy::Proxy, value, key::Symbol) #::Auto
 end
 
 end # end of module jluna
+
 return true # used for testing

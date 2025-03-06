@@ -20,3 +20,4 @@ out/install
 /cmake-build-debug/
 /cmake-build-debug-event-trace/
 /out/
+tmp

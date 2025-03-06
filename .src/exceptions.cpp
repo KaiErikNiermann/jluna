@@ -1,4 +1,4 @@
-// 
+//
 // Copyright 2022 Clemens Cords
 // Created on 30.01.22 by clem (mail@clemens-cords.com)
 //
@@ -10,33 +10,31 @@
 #include <vector>
 #include <iostream>
 
-namespace jluna
-{
+namespace jluna {
     JuliaException::JuliaException(jl_value_t* exception, const std::string& stacktrace)
-        : _value(exception), _message("[JULIA][EXCEPTION] " + stacktrace)
-    {}
+        : _value(exception)
+        , _message("[JULIA][EXCEPTION] " + stacktrace) { }
 
-    const char* JuliaException::what() const noexcept
-    {
-        return _message.c_str();
-    }
+    const char* JuliaException::what() const noexcept { return _message.c_str(); }
 
-    JuliaException::operator unsafe::Value*()
-    {
-        return _value;
-    }
+    JuliaException::operator unsafe::Value*() { return _value; }
 
     JuliaUninitializedException::JuliaUninitializedException()
-        : std::exception()
-    {}
+        : std::exception() { }
 
-    const char * JuliaUninitializedException::what() const noexcept
-    {
-        return "[C++][ERROR] jluna and julia need to be initialized using jluna::initialize() before usage";
+    MissingTypeSetterDispatch::MissingTypeSetterDispatch()
+        : std::exception() { }
+
+    const char* JuliaUninitializedException::what() const noexcept {
+        return "[C++][ERROR] jluna and julia need to be initialized using jluna::initialize() "
+               "before usage";
     }
 
-    void throw_if_uninitialized()
-    {
+    const char* MissingTypeSetterDispatch::what() const noexcept {
+        return "[C++][ERROR] missing setter dispatch for type";
+    }
+
+    void throw_if_uninitialized() {
         static bool initialized = false;
 
         if (initialized)
@@ -48,8 +46,7 @@ namespace jluna
             initialized = true;
     }
 
-    void forward_last_exception()
-    {
+    void forward_last_exception() {
         throw_if_uninitialized();
 
         auto* exc = jl_exception_occurred();
@@ -57,4 +54,3 @@ namespace jluna
             throw JuliaException(exc, jl_string_ptr(jl_get_nth_field(exc, 0)));
     }
 }
-

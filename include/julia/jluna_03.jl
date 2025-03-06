@@ -13,7 +13,7 @@ end
 
 wrap function call for non-function objects
 """
-function invoke(x::Any, args...) ::Any
+function invoke(x::Any, args::Vararg{Any, N}) ::Any where N
     return x(args...)
 end
 

@@ -1,4 +1,4 @@
-// 
+//
 // Copyright 2022 Clemens Cords
 // Created on 04.04.22 by clem (mail@clemens-cords.com)
 //
@@ -9,8 +9,7 @@
 
 #include <mutex>
 
-namespace jluna::detail
-{
+namespace jluna::detail {
     static inline uint64_t _num_threads = 1;
 
     void initialize_modules();
@@ -26,54 +25,58 @@ namespace jluna::detail
     inline std::mutex initialize_lock = std::mutex();
 }
 
-namespace jluna
-{
+namespace jluna {
 
-    #ifdef _MSC_VER
-        // silence false positive conversion warning on MSVC
-        #pragma warning(push)
-        #pragma warning(disable:4267)
-    #endif
+#ifdef _MSC_VER
+// silence false positive conversion warning on MSVC
+#    pragma warning(push)
+#    pragma warning(disable : 4267)
+#endif
 
-    template<is_julia_value_pointer... Args_t>
-    unsafe::Value* safe_call(unsafe::Function* function, Args_t... in)
-    {
+    static void throw_if_exception(unsafe::Value* res) {
+        throw JuliaException(jl_get_nth_field(res, 2), jl_string_ptr(jl_get_nth_field(res, 3)));
+    }
+
+    template <is_julia_value_pointer... Args_t>
+    inline unsafe::Value* safe_call(unsafe::Function* function, Args_t... in) {
         throw_if_uninitialized();
 
         static auto* jl_safe_call = unsafe::get_function("jluna"_sym, "safe_call"_sym);
 
-        static std::array<unsafe::Value*, sizeof...(Args_t) + 1> args;
-        static auto set = [&](uint64_t i, unsafe::Value* x) {args[i] = x;};
+        auto* tuple_res
+            = jl_call(jl_safe_call, unsafe::fn_buffer(function, in...), sizeof...(Args_t) + 1);
 
-        args[0] = (unsafe::Value*) function;
+        if (jl_unbox_bool(jl_get_nth_field(tuple_res, 1))) [[unlikely]]
+            throw_if_exception(tuple_res);
 
-        uint64_t i = 1;
-        (set(i++, (unsafe::Value*) in), ...);
-
-        auto* tuple_res = jl_call(jl_safe_call, args.data(), args.size());
-
-        if (jl_unbox_bool(jl_get_nth_field(tuple_res, 1)))
-            throw JuliaException(jl_get_nth_field(tuple_res, 2), jl_string_ptr(jl_get_nth_field(tuple_res, 3)));
-
-        auto* res = jl_get_nth_field(tuple_res, 0);
-        return res;
+        return jl_get_nth_field(tuple_res, 0);
     }
 
-    #ifdef _MSC_VER
-        #pragma warning(pop)
-    #endif
-
-    template<is_julia_value_pointer... Ts>
-    void println(Ts... in)
-    {
-        static auto* jl_println = unsafe::get_function(jl_base_module, "println"_sym);
-        safe_call(jl_println, in...);
+    inline auto operator""_Base(const char* fn, uint64_t) {
+        return [fn](auto... args) -> unsafe::Value* {
+            return jluna::safe_call(jl_get_function(jl_base_module, fn), (unsafe::Value*)args...);
+        };
     }
 
-    inline unsafe::Value* as_julia_pointer(unsafe::Value* in)
-    {
-        static auto* forward_as_pointer = unsafe::get_function("jluna"_sym, "forward_as_pointer"_sym);
-        return safe_call(forward_as_pointer, jl_typeof(in), jl_box_voidpointer((void*) in));
+    inline auto operator""_Jluna(const char* fn, uint64_t) {
+        return [fn](auto... args) -> unsafe::Value* {
+            return jluna::safe_call(jl_get_function((unsafe::Module*)jl_get_global(jl_main_module, "jluna"_sym), fn), (unsafe::Value*)args...);
+        };
+    }
+
+#ifdef _MSC_VER
+#    pragma warning(pop)
+#endif
+
+    template <is_julia_value_pointer... Ts>
+    void println(Ts... in) {
+        "println"_Base(in...);
+    }
+
+    inline unsafe::Value* as_julia_pointer(unsafe::Value* in) {
+        static auto* forward_as_pointer
+            = unsafe::get_function("jluna"_sym, "forward_as_pointer"_sym);
+        return safe_call(forward_as_pointer, jl_typeof(in), jl_box_voidpointer((void*)in));
     }
 
     inline void initialize(
@@ -82,28 +85,33 @@ namespace jluna
         const std::string& jluna_shared_library_path,
         const std::string& julia_bindir,
         const std::string& image_path
-    )
-    {
+    ) {
         static bool is_initialized = false;
 
         detail::initialize_lock.lock();
 
-        if (is_initialized)
-        {
+        if (is_initialized) {
             detail::initialize_lock.unlock();
             return;
         }
 
-        #ifdef _WIN32
+#ifdef _WIN32
         {
             std::stringstream env;
-            env << "JULIA_NUM_THREADS=" << (n_threads == 0 ? "auto" : std::to_string(n_threads)) << std::endl;
-            if (not (_putenv(env.str().c_str()) == 0))
-                std::cerr << "[C++][ERROR] In jluna::initialize: Unable to write Windows environment variable `JULIA_NUM_THREADS`" << std::endl;
+            env << "JULIA_NUM_THREADS=" << (n_threads == 0 ? "auto" : std::to_string(n_threads))
+                << std::endl;
+            if (not(_putenv(env.str().c_str()) == 0))
+                std::cerr << "[C++][ERROR] In jluna::initialize: Unable to write Windows "
+                             "environment variable `JULIA_NUM_THREADS`"
+                          << std::endl;
         }
-        #else
-        setenv("JULIA_NUM_THREADS", std::string(n_threads == 0 ? "auto" : std::to_string(n_threads)).c_str(), 1);
-        #endif
+#else
+        setenv(
+            "JULIA_NUM_THREADS",
+            std::string(n_threads == 0 ? "auto" : std::to_string(n_threads)).c_str(),
+            1
+        );
+#endif
 
         detail::_num_threads = n_threads;
         if (julia_bindir.empty() and image_path.empty())
@@ -133,7 +141,8 @@ namespace jluna
 
         std::stringstream str;
         str << "jluna.cppcall.eval(:(const _lib = \""
-            << (jluna_shared_library_path.empty() ? jluna::detail::shared_library_name : jluna_shared_library_path)
+            << (jluna_shared_library_path.empty() ? jluna::detail::shared_library_name
+                                                  : jluna_shared_library_path)
             << "\"))";
 
         jl_eval_string(str.str().c_str());
@@ -142,8 +151,7 @@ namespace jluna
         detail::initialize_modules();
         detail::initialize_types();
 
-        if (suppress_log)
-        {
+        if (suppress_log) {
             safe_eval(R"(
                 if !isdefined(Main, :jluna) && jluna.cppcall.verify_library()
                     print("[JULIA]")
@@ -151,9 +159,7 @@ namespace jluna
                     throw(AssertionError(("[JULIA][ERROR] initialization failed.")))
                 end
             )");
-        }
-        else
-        {
+        } else {
             safe_eval(R"(
                 if isdefined(Main, :jluna) && jluna.cppcall.verify_library()
                     print("[JULIA][LOG] ")
